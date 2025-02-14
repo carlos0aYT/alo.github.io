@@ -1,0 +1,211 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Cámara con Grabación y Filtros</title>
+    <style>
+        body { font-family: Arial, sans-serif; text-align: center; background: #222; color: white; display: flex; }
+        #contenedor { display: flex; width: 100%; justify-content: center; }
+        video, canvas { width: 80%; max-width: 600px; margin-top: 10px; border: 2px solid white; }
+        #controles { margin: 10px auto; padding: 10px; background: rgba(0, 0, 0, 0.7); display: flex; flex-wrap: wrap; justify-content: center; gap: 10px; }
+        button { padding: 8px; font-size: 14px; color: white; background: #444; border: none; cursor: pointer; }
+        button:hover { background: #666; }
+        #estadoGrabacion { font-size: 18px; margin-top: 10px; color: red; display: none; }
+        #tablaFiltros { margin-left: 20px; padding: 10px; background: rgba(0, 0, 0, 0.5); border-radius: 5px; width: 200px; }
+        #tablaFiltros img { width: 80%; margin: 5px; cursor: pointer; }
+        #mensajeRostro { color: yellow; font-size: 16px; margin-top: 10px; }
+    </style>
+</head>
+<body>
+    <h1>Cámara con Grabación, Filtros y Accesorios</h1>
+    <div id="contenedor">
+        <!-- Vista previa de filtros -->
+        <div id="tablaFiltros">
+            <h3>Filtros de Rostro</h3>
+            <img src="filtro1.png" alt="Gafas" onclick="aplicarFiltro('gafas')" />
+            <img src="filtro2.png" alt="Bigote" onclick="aplicarFiltro('bigote')" />
+            <img src="filtro3.png" alt="Orejas de Perro" onclick="aplicarFiltro('orejas')" />
+            <img src="filtro4.png" alt="Orejas de Gato" onclick="aplicarFiltro('orejas_gato')" />
+            <img src="filtro5.png" alt="Gafas Estilo Retro" onclick="aplicarFiltro('gafas_retro')" />
+        </div>
+        <!-- Video y canvas para mostrar el video con efectos -->
+        <div>
+            <video id="video" autoplay playsinline></video>
+            <canvas id="canvas" style="display: none;"></canvas>
+            <h2 id="estadoGrabacion">🔴 Grabando... <span id="contador">0</span> s</h2>
+            <div id="controles">
+                <button onclick="iniciarGrabacion()">🎥 Iniciar Grabación</button>
+                <button onclick="detenerGrabacion()">⏹️ Detener Grabación</button>
+                <button onclick="descargarVideo()">⬇️ Descargar Video</button>
+                <button onclick="girarIzquierda()">🔄 Girar a la Izquierda</button>
+                <button onclick="girarDerecha()">🔁 Girar a la Derecha</button>
+                <button onclick="restaurarRotacion()">↻ Restaurar</button>
+                <button onclick="invertirHorizontal()">↔️ Invertir Horizontal</button>
+                <button onclick="invertirVertical()">↕️ Invertir Vertical</button>
+            </div>
+            <h3>Grabaciones:</h3>
+            <video id="grabacion" controls></video>
+            <div id="mensajeRostro"></div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_detection@0.3/face_detection.js"></script>
+    <script>
+        let stream = null;
+        let mediaRecorder = null;
+        let chunks = [];
+        let contador = 0;
+        let intervaloTiempo = null;
+        let faceDetection = null;
+        let deteccionActiva = false;
+        let filtroSeleccionado = null;
+        let videoRotacion = 0;
+        let inversionHorizontal = false;
+        let inversionVertical = false;
+
+        async function iniciarCamara() {
+            try {
+                stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "user" } });
+                document.getElementById("video").srcObject = stream;
+
+                // Iniciar Face Detection
+                faceDetection = new FaceDetection.FaceDetection({
+                    locateFile: (file) => https://cdn.jsdelivr.net/npm/@mediapipe/face_detection@0.3/${file}
+                });
+                faceDetection.setOptions({ model: 'short' });
+                faceDetection.onResults(detectarRostro);
+                detectarCara();
+            } catch (error) {
+                console.error("Error al acceder a la cámara: ", error);
+                alert("No se pudo acceder a la cámara. Verifica los permisos.");
+            }
+        }
+
+        function detectarCara() {
+            const video = document.getElementById("video");
+            faceDetection.send({ image: video });
+            requestAnimationFrame(detectarCara);
+        }
+
+        function detectarRostro(results) {
+            const mensajeRostro = document.getElementById("mensajeRostro");
+            if (results.detections.length === 0) {
+                mensajeRostro.innerText = "❌ Ningún rostro identificado";
+                return;
+            } else {
+                mensajeRostro.innerText = "";
+            }
+
+            let deteccion = results.detections[0].boundingBox;
+            if (deteccionActiva) {
+                const ctx = document.getElementById("canvas").getContext("2d");
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+                if (filtroSeleccionado === 'gafas') {
+                    ctx.fillStyle = "rgba(0, 0, 0, 0.5)";
+                    ctx.fillRect(deteccion.xCenter() - 50, deteccion.topLeft[1] - 10, 100, 20);
+                } else if (filtroSeleccionado === 'bigote') {
+                    ctx.fillStyle = "brown";
+                    ctx.fillRect(deteccion.xCenter() - 40, deteccion.bottomRight[1] - 20, 80, 15);
+                } else if (filtroSeleccionado === 'orejas') {
+                    ctx.beginPath();
+                    ctx.arc(deteccion.xCenter() - 70, deteccion.topLeft[1] - 20, 20, 0, 2 * Math.PI);
+                    ctx.arc(deteccion.xCenter() + 70, deteccion.topLeft[1] - 20, 20, 0, 2 * Math.PI);
+                    ctx.fillStyle = "brown";
+                    ctx.fill();
+                } else if (filtroSeleccionado === 'orejas_gato') {
+                    ctx.beginPath();
+                    ctx.arc(deteccion.xCenter() - 70, deteccion.topLeft[1] - 30, 25, 0, 2 * Math.PI);
+                    ctx.arc(deteccion.xCenter() + 70, deteccion.topLeft[1] - 30, 25, 0, 2 * Math.PI);
+                    ctx.fillStyle = "pink";
+                    ctx.fill();
+                } else if (filtroSeleccionado === 'gafas_retro') {
+                    ctx.fillStyle = "rgba(0, 0, 0, 0.8)";
+                    ctx.fillRect(deteccion.xCenter() - 60, deteccion.topLeft[1] - 10, 120, 25);
+                }
+            }
+        }
+
+        function aplicarFiltro(filtro) {
+            filtroSeleccionado = filtro;
+            deteccionActiva = true;
+            console.log(Filtro aplicado: ${filtro});
+        }
+
+        function iniciarGrabacion() {
+            if (!stream) return;
+            mediaRecorder = new MediaRecorder(stream);
+            chunks = [];
+            mediaRecorder.ondataavailable = event => chunks.push(event.data);
+            mediaRecorder.onstop = () => {
+                let blob = new Blob(chunks, { type: "video/webm" });
+                document.getElementById("grabacion").src = URL.createObjectURL(blob);
+            };
+            mediaRecorder.start();
+
+            document.getElementById("estadoGrabacion").style.display = "block";
+            contador = 0;
+            document.getElementById("contador").innerText = contador;
+            intervaloTiempo = setInterval(() => {
+                contador++;
+                document.getElementById("contador").innerText = contador;
+            }, 1000);
+        }
+
+        function detenerGrabacion() {
+            if (mediaRecorder) mediaRecorder.stop();
+            clearInterval(intervaloTiempo);
+            document.getElementById("estadoGrabacion").style.display = "none";
+        }
+
+        function descargarVideo() {
+            let blob = new Blob(chunks, { type: "video/webm" });
+            let link = document.createElement("a");
+            link.href = URL.createObjectURL(blob);
+            link.download = "grabacion.webm";
+            link.click();
+        }
+
+        function girarDerecha() {
+            videoRotacion += 90;
+            actualizarRotacion();
+        }
+
+        function girarIzquierda() {
+            videoRotacion -= 90;
+            actualizarRotacion();
+        }
+
+        function restaurarRotacion() {
+            videoRotacion = 0;
+            actualizarRotacion();
+        }
+
+        function actualizarRotacion() {
+            const video = document.getElementById("video");
+            video.style.transform = rotate(${videoRotacion}deg);
+        }
+
+        function invertirHorizontal() {
+            inversionHorizontal = !inversionHorizontal;
+            actualizarTransformacion();
+        }
+
+        function invertirVertical() {
+            inversionVertical = !inversionVertical;
+            actualizarTransformacion();
+        }
+
+        function actualizarTransformacion() {
+            const video = document.getElementById("video");
+            let transform = "";
+            if (inversionHorizontal) transform += "scaleX(-1) ";
+            if (inversionVertical) transform += "scaleY(-1) ";
+            video.style.transform = transform;
+        }
+
+        iniciarCamara();
+    </script>
+</body>
+</html>
